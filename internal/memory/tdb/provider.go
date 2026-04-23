@@ -55,6 +55,7 @@ func (p *Provider) Write(_ context.Context, mem *memory.Memory) error {
 		return fmt.Errorf("tdb /mem/write: %w", err)
 	}
 	raw, err := io.ReadAll(resp.Body)
+	//nolint:errcheck
 	resp.Body.Close()
 	if err != nil {
 		return fmt.Errorf("read mem_write response: %w", err)
@@ -81,6 +82,7 @@ func (p *Provider) Read(_ context.Context, id string) (*memory.Memory, error) {
 		return nil, fmt.Errorf("tdb /cells/%s: %w", id, err)
 	}
 	raw, err := io.ReadAll(resp.Body)
+	//nolint:errcheck
 	resp.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("read cell response: %w", err)
@@ -139,6 +141,7 @@ func (p *Provider) Search(_ context.Context, query memory.SearchQuery) ([]*memor
 		return nil, fmt.Errorf("tdb /mem/read: %w", err)
 	}
 	raw, err := io.ReadAll(resp.Body)
+	//nolint:errcheck
 	resp.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("read mem_read response: %w", err)
