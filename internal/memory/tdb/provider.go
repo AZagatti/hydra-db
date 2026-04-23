@@ -257,11 +257,4 @@ func typeFromLayer(layer int) memory.Type {
 	}
 }
 
-// copyBody reads the full body so we can close the response before decoding.
-// This avoids "read on closed response body" when deferring Close().
-func copyBody(resp *http.Response) ([]byte, error) {
-	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
-}
-
 var _ memory.Provider = (*Provider)(nil)
