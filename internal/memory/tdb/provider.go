@@ -1,6 +1,7 @@
 package tdb
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -51,7 +52,7 @@ func (p *Provider) Write(_ context.Context, mem *memory.Memory) error {
 		return fmt.Errorf("marshal mem_write payload: %w", err)
 	}
 
-	resp, err := p.client.Post(p.baseURL+"/mem/write", "application/json", nil)
+	resp, err := p.client.Post(p.baseURL+"/mem/write", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("tdb /mem/write: %w", err)
 	}
@@ -129,7 +130,7 @@ func (p *Provider) Search(_ context.Context, query memory.SearchQuery) ([]*memor
 		return nil, fmt.Errorf("marshal mem_read payload: %w", err)
 	}
 
-	resp, err := p.client.Post(p.baseURL+"/mem/read", "application/json", body)
+	resp, err := p.client.Post(p.baseURL+"/mem/read", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("tdb /mem/read: %w", err)
 	}
