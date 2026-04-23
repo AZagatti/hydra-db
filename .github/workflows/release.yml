@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Build binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o hydra-linux-amd64 ./cmd/hydra
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o hydra-darwin-amd64 ./cmd/hydra
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o hydra-darwin-arm64 ./cmd/hydra
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            hydra-linux-amd64
+            hydra-darwin-amd64
+            hydra-darwin-arm64
+          generate_release_notes: true

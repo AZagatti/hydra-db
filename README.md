@@ -2,6 +2,10 @@
 
 > *"Yell draws the interface, Hydra operates the organism, TardigradeDB remembers the trauma."*
 
+[![CI](https://github.com/AZagatti/hydra-db/actions/workflows/ci.yml/badge.svg)](https://github.com/AZagatti/hydra-db/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/AZagatti/hydra-db)](https://goreportcard.com/report/github.com/AZagatti/hydra-db)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 ## What is Hydra
 
 Hydra is a backend platform designed for AI agents, humans, tools, and event-driven workflows. It is built as a modular monolith where each subsystem is a "head" with a specialized role -- API gateway, agent runtime, job execution, memory storage, policy enforcement -- all sharing a common "body" of identity, observability, configuration, and state.
@@ -48,7 +52,7 @@ The body provides shared contracts every head depends on: the universal `Envelop
 ## Quick Start
 
 ```bash
-git clone https://github.com/azagatti/hydra-db.git
+git clone https://github.com/AZagatti/hydra-db.git
 cd hydra-db
 cp configs/hydra.example.yaml configs/hydra.yaml
 make build
@@ -194,6 +198,10 @@ hydra-db/
 Included: API gateway with routing and middleware, single ephemeral agent runtime with tools, execution plane with queue/DAG/scheduler/retry, policy engine with AuthN/AuthZ/budgets/audit, memory plane with in-memory provider, HTTP/CLI/Slack adapters, full tracing and integration tests.
 
 Not yet: multi-agent trees, TardigradeDB integration, WebSocket streaming, semantic search, MCP adapter, distributed deployment. See [PLAN.md](PLAN.md) for the full roadmap.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
 
 ## License
 

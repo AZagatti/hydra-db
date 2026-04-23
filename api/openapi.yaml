@@ -1,0 +1,401 @@
+openapi: 3.1.0
+info:
+  title: Hydra
+  description: >-
+    OpenAPI specification for the Hydra Go backend service.
+    All operations are POST to `/api/v1/{action}` and share a common
+    response envelope.
+  version: 0.1.0
+  license:
+    name: MIT
+    identifier: MIT
+  contact:
+    name: azagatti
+    url: https://github.com/azagatti/hydra-db
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+paths:
+  /api/v1/health:
+    post:
+      operationId: health
+      summary: Health check
+      description: Returns service health reports.
+      tags: [system]
+      parameters:
+        - $ref: "#/components/parameters/X-Trace-ID"
+        - $ref: "#/components/parameters/Authorization"
+      responses:
+        "200":
+          description: Healthy response with health reports.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      payload:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/HealthReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/chat:
+    post:
+      operationId: chat
+      summary: Chat
+      description: Sends a chat message and receives an echo result.
+      tags: [chat]
+      parameters:
+        - $ref: "#/components/parameters/X-Trace-ID"
+        - $ref: "#/components/parameters/Authorization"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message, actor, tenant]
+              properties:
+                message:
+                  type: string
+                actor:
+                  $ref: "#/components/schemas/Identity"
+                tenant:
+                  $ref: "#/components/schemas/Tenant"
+      responses:
+        "200":
+          description: Echo result wrapped in an envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      payload:
+                        type: object
+                        properties:
+                          echo:
+                            type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/task:
+    post:
+      operationId: task
+      summary: Create task
+      description: Submits a background task and returns a job ID and state.
+      tags: [task]
+      parameters:
+        - $ref: "#/components/parameters/X-Trace-ID"
+        - $ref: "#/components/parameters/Authorization"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, data, actor, tenant]
+              properties:
+                type:
+                  type: string
+                data: {}
+                actor:
+                  $ref: "#/components/schemas/Identity"
+                tenant:
+                  $ref: "#/components/schemas/Tenant"
+      responses:
+        "200":
+          description: Job ID and state wrapped in an envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      payload:
+                        type: object
+                        properties:
+                          job_id:
+                            type: string
+                            format: uuid
+                          state:
+                            type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/memory.store:
+    post:
+      operationId: memoryStore
+      summary: Store memory
+      description: Persists a memory record of the given type.
+      tags: [memory]
+      parameters:
+        - $ref: "#/components/parameters/X-Trace-ID"
+        - $ref: "#/components/parameters/Authorization"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content, type, actor, tenant]
+              properties:
+                content: {}
+                type:
+                  type: string
+                  enum: [episodic, semantic, operational, working]
+                tags:
+                  type: array
+                  items:
+                    type: string
+                actor:
+                  $ref: "#/components/schemas/Identity"
+                tenant:
+                  $ref: "#/components/schemas/Tenant"
+      responses:
+        "200":
+          description: Stored memory ID and type wrapped in an envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      payload:
+                        type: object
+                        properties:
+                          memory_id:
+                            type: string
+                            format: uuid
+                          type:
+                            type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/memory.search:
+    post:
+      operationId: memorySearch
+      summary: Search memories
+      description: Searches stored memories by type and/or tags.
+      tags: [memory]
+      parameters:
+        - $ref: "#/components/parameters/X-Trace-ID"
+        - $ref: "#/components/parameters/Authorization"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actor, tenant]
+              properties:
+                type:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+                limit:
+                  type: integer
+                  minimum: 1
+                  default: 20
+                actor:
+                  $ref: "#/components/schemas/Identity"
+                tenant:
+                  $ref: "#/components/schemas/Tenant"
+      responses:
+        "200":
+          description: Search results wrapped in an envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      payload:
+                        type: object
+                        properties:
+                          count:
+                            type: integer
+                          results:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/Memory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  parameters:
+    X-Trace-ID:
+      name: X-Trace-ID
+      in: header
+      description: Optional trace ID. Auto-generated when not provided.
+      schema:
+        type: string
+        format: uuid
+
+    Authorization:
+      name: Authorization
+      in: header
+      description: Optional authorization token passed through as metadata.
+      schema:
+        type: string
+
+  schemas:
+    ActorKind:
+      type: string
+      enum: [user, service, system, agent]
+
+    Identity:
+      type: object
+      required: [id, kind, roles, tenant_id]
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ActorKind"
+        roles:
+          type: array
+          items:
+            type: string
+        tenant_id:
+          type: string
+
+    Tenant:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+
+    Envelope:
+      type: object
+      required: [id, trace_id, actor, tenant, type, action, payload, timestamp]
+      properties:
+        id:
+          type: string
+          format: uuid
+        trace_id:
+          type: string
+          format: uuid
+        actor:
+          $ref: "#/components/schemas/Identity"
+        tenant:
+          $ref: "#/components/schemas/Tenant"
+        type:
+          type: string
+        action:
+          type: string
+        payload: {}
+        timestamp:
+          type: string
+          format: date-time
+
+    HealthReport:
+      type: object
+      properties:
+        service:
+          type: string
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        message:
+          type: string
+
+    Memory:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [episodic, semantic, operational, working]
+        content: {}
+        tags:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      required: [error, trace_id]
+      properties:
+        error:
+          type: string
+        trace_id:
+          type: string
+          format: uuid
+
+  responses:
+    BadRequest:
+      description: Invalid request body or parameters.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    NotFound:
+      description: Unknown endpoint or action.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    MethodNotAllowed:
+      description: HTTP method not supported for this path.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

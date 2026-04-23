@@ -1,4 +1,4 @@
-.PHONY: build test lint cover clean run
+.PHONY: build test lint cover clean run install
 
 build:
 	go build -o bin/hydra ./cmd/hydra
@@ -19,3 +19,9 @@ clean:
 
 run: build
 	./bin/hydra
+
+install:
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	go install golang.org/x/tools/cmd/goimports@latest
+	go install github.com/evilmartians/lefthook@latest
+	lefthook install

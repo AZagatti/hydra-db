@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://json.schemastore.org/lefthook.json
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: goimports
+      glob: "*.go"
+      run: goimports -w {staged_files} && git add {staged_files}
+
+    - name: go vet
+      glob: "*.go"
+      run: go vet ./...
+
+    - name: test
+      glob: "*.go"
+      run: go test -race -count=1 ./...
+
+commit-msg:
+  jobs:
+    - name: conventional commits
+      run: |
+        msg=$(head -1 {1})
+        if ! echo "$msg" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|build|ci)(\(.+\))?: .+'; then
+          echo "ERROR: commit message must follow conventional commits format"
+          echo "  e.g., feat: add memory search"
+          echo "  e.g., fix(gateway): handle nil payload"
+          exit 1
+        fi
