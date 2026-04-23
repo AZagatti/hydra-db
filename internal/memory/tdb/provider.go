@@ -56,7 +56,7 @@ func (p *Provider) Write(_ context.Context, mem *memory.Memory) error {
 	if err != nil {
 		return fmt.Errorf("tdb /mem/write: %w", err)
 	}
-	defer resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("tdb /mem/write: HTTP %d", resp.StatusCode)
@@ -78,7 +78,7 @@ func (p *Provider) Read(_ context.Context, id string) (*memory.Memory, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tdb /cells/%s: %w", id, err)
 	}
-	defer resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("memory %q not found", id)
@@ -134,7 +134,7 @@ func (p *Provider) Search(_ context.Context, query memory.SearchQuery) ([]*memor
 	if err != nil {
 		return nil, fmt.Errorf("tdb /mem/read: %w", err)
 	}
-	defer resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("tdb /mem/read: HTTP %d", resp.StatusCode)

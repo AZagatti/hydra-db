@@ -13,15 +13,14 @@ import (
 )
 
 func TestProvider_Write_and_Read(t *testing.T) {
-	// Mock TDB server
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/mem/write":
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
-			json.NewEncoder(w).Encode(map[string]any{"cell_id": 42})
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewEncoder(w).Encode(map[string]any{"cell_id": 42})
 		case "/cells/42":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"cell_id": 42, "owner": "alice", "layer": 0,
 				"importance": 85.0, "tier": "draft", "key_dim": 768, "value_dim": 768,
 			})
@@ -46,7 +45,7 @@ func TestProvider_Write_and_Read(t *testing.T) {
 func TestProvider_Search(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/mem/read" {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"results": []map[string]any{
 					{"cell_id": 1, "owner": "alice", "layer": 0, "score": 0.95, "tier": "draft", "importance": 80},
 					{"cell_id": 2, "owner": "alice", "layer": 1, "score": 0.88, "tier": "validated", "importance": 65},
@@ -78,7 +77,6 @@ func TestProvider_Delete(t *testing.T) {
 	defer srv.Close()
 
 	p := NewProvider(srv.URL)
-	// Delete is a no-op (TDB has no cell-level delete API)
 	err := p.Delete(context.Background(), "nonexistent")
 	assert.NoError(t, err)
 }
