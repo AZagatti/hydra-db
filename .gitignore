@@ -1,0 +1,32 @@
+# Build
+bin/
+/hydra
+
+# Test
+coverage.out
+coverage.html
+*.test
+
+# Config (only commit example)
+configs/hydra.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+
+# Artifacts
+*.bak
+*.exe
+vendor/
+
+opencode.json
