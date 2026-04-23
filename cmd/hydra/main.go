@@ -17,6 +17,7 @@ import (
 	"github.com/azagatti/hydra-db/internal/gateway"
 	"github.com/azagatti/hydra-db/internal/memory"
 	"github.com/azagatti/hydra-db/internal/memory/inmemory"
+	"github.com/azagatti/hydra-db/internal/memory/tdb"
 	"github.com/azagatti/hydra-db/internal/policy"
 )
 
@@ -39,7 +40,21 @@ func main() {
 	gw := gateway.NewGateway(cfg.Gateway)
 	rt := agent.NewRuntime()
 	execPlane := execution.NewPlane()
-	memPlane := memory.NewPlane(inmemory.NewProvider())
+	// Build the memory plane with the configured provider.
+	var memProvider memory.Provider
+	switch cfg.Memory.Provider {
+	case "tardigrade":
+		tdbURL := cfg.Memory.TDBURL
+		if tdbURL == "" {
+			tdbURL = "http://localhost:8765"
+		}
+		slog.Info("using tardigrade memory provider", "url", tdbURL)
+		memProvider = tdb.NewProvider(tdbURL)
+	default:
+		slog.Info("using in-memory provider")
+		memProvider = inmemory.NewProvider()
+	}
+	memPlane := memory.NewPlane(memProvider)
 	pe := policy.NewEngine(cfg.Policy)
 
 	for _, head := range []body.Head{gw, rt, execPlane, memPlane, pe} {

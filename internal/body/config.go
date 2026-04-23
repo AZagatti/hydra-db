@@ -13,10 +13,11 @@ import (
 
 // Config is the top-level configuration for a Hydra instance.
 type Config struct {
-	Hydra   HydraConfig   `koanf:"hydra"`
-	Gateway GatewayConfig `koanf:"gateway"`
-	Policy  PolicyConfig  `koanf:"policy"`
-	Logging LoggingConfig `koanf:"logging"`
+	Hydra       HydraConfig       `koanf:"hydra"`
+	Gateway     GatewayConfig     `koanf:"gateway"`
+	Memory      MemoryConfig      `koanf:"memory"`
+	Policy      PolicyConfig      `koanf:"policy"`
+	Logging     LoggingConfig     `koanf:"logging"`
 }
 
 // HydraConfig controls core Hydra identity and behavior.
@@ -32,6 +33,13 @@ type GatewayConfig struct {
 	Port         int    `koanf:"port"`
 	ReadTimeout  int    `koanf:"read_timeout"`
 	WriteTimeout int    `koanf:"write_timeout"`
+}
+
+// MemoryConfig controls the memory plane backend.
+type MemoryConfig struct {
+	Provider  string `koanf:"provider"`   // "inmemory" or "tardigrade"
+	TDBURL    string `koanf:"tdb_url"`    // base URL for TardigradeDB server
+	TDBDir    string `koanf:"tdb_dir"`    // local TDB data directory (for direct engine)
 }
 
 // PolicyConfig controls tenant-level resource budgets and rate limits.

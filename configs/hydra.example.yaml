@@ -9,6 +9,11 @@ gateway:
   read_timeout: 30
   write_timeout: 30
 
+memory:
+  provider: inmemory     # inmemory | tardigrade
+  tdb_url: http://localhost:8765   # only used when provider = tardigrade
+  tdb_dir: /tmp/tdb       # local TDB data dir (future, direct engine)
+
 policy:
   default_budget: 10000
   rate_limit: 100
