@@ -5,15 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
 	"github.com/azagatti/hydra-db/internal/memory"
 )
 
-// Provider is a memory.Provider that delegates to a TardigradeDB HTTP server.
-// It is suitable for development and single-node deployments where the TDB
-// server runs as a separate process.
+// Provider is a memory.Provider that delegates to a local TardigradeDB
+// Python engine process via JSON over HTTP.
 type Provider struct {
 	baseURL string
 	client  *http.Client
@@ -34,17 +34,15 @@ func NewProvider(baseURL string) *Provider {
 // The Content (json.RawMessage) is stored as the cell value; a lightweight
 // key vector is derived from the Content for retrieval scoring.
 func (p *Provider) Write(_ context.Context, mem *memory.Memory) error {
-	// Derive a simple key vector from Content bytes (first N bytes hashed).
-	// In a full implementation this would use the model's actual KV projection.
 	key := deriveKey(mem.Content)
-	value := mem.Content // store raw content as value
+	value := mem.Content
 
 	payload := map[string]any{
 		"owner":    mem.ActorID,
 		"layer":    layerFromType(mem.Type),
 		"key":      key,
 		"value":    value,
-		"salience": mem.Confidence * 100, // TDB uses 0-100
+		"salience": mem.Confidence * 100,
 	}
 
 	body, err := json.Marshal(payload)
@@ -56,7 +54,11 @@ func (p *Provider) Write(_ context.Context, mem *memory.Memory) error {
 	if err != nil {
 		return fmt.Errorf("tdb /mem/write: %w", err)
 	}
-	_ = resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return fmt.Errorf("read mem_write response: %w", err)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("tdb /mem/write: HTTP %d", resp.StatusCode)
@@ -65,7 +67,7 @@ func (p *Provider) Write(_ context.Context, mem *memory.Memory) error {
 	var result struct {
 		CellID int `json:"cell_id"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(raw, &result); err != nil {
 		return fmt.Errorf("decode mem_write response: %w", err)
 	}
 
@@ -78,7 +80,11 @@ func (p *Provider) Read(_ context.Context, id string) (*memory.Memory, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tdb /cells/%s: %w", id, err)
 	}
-	_ = resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read cell response: %w", err)
+	}
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("memory %q not found", id)
@@ -96,33 +102,31 @@ func (p *Provider) Read(_ context.Context, id string) (*memory.Memory, error) {
 		KeyDim     int     `json:"key_dim"`
 		ValueDim   int     `json:"value_dim"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&cell); err != nil {
+	if err := json.Unmarshal(raw, &cell); err != nil {
 		return nil, fmt.Errorf("decode cell response: %w", err)
 	}
 
-	// Reconstruct minimal Memory from cell metadata.
-	// Full content requires a separate mem_read call.
 	return &memory.Memory{
-		ID:      id,
-		Type:    typeFromLayer(cell.Layer),
-		ActorID: cell.Owner,
+		ID:         id,
+		Type:       typeFromLayer(cell.Layer),
+		ActorID:    cell.Owner,
 		Confidence: cell.Importance / 100,
-		Tags:   []string{},
+		Tags:       []string{},
 	}, nil
 }
 
 // Search returns Memory records by querying TDB via POST /mem/read with a
 // synthetic query key derived from the SearchQuery fields.
 func (p *Provider) Search(_ context.Context, query memory.SearchQuery) ([]*memory.Memory, error) {
-	// Build a query key from the search fields.
 	queryKey := buildQueryKey(query)
+	k := query.Limit
+	if k <= 0 {
+		k = 50
+	}
 
 	payload := map[string]any{
 		"query_key": queryKey,
-		"k":         query.Limit,
-	}
-	if query.Limit <= 0 {
-		payload["k"] = 50
+		"k":         k,
 	}
 
 	body, err := json.Marshal(payload)
@@ -134,7 +138,11 @@ func (p *Provider) Search(_ context.Context, query memory.SearchQuery) ([]*memor
 	if err != nil {
 		return nil, fmt.Errorf("tdb /mem/read: %w", err)
 	}
-	_ = resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read mem_read response: %w", err)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("tdb /mem/read: HTTP %d", resp.StatusCode)
@@ -150,7 +158,7 @@ func (p *Provider) Search(_ context.Context, query memory.SearchQuery) ([]*memor
 			Importance float64 `json:"importance"`
 		} `json:"results"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, fmt.Errorf("decode mem_read response: %w", err)
 	}
 
@@ -171,10 +179,8 @@ func (p *Provider) Search(_ context.Context, query memory.SearchQuery) ([]*memor
 // Delete removes a Memory record from TDB.
 // TDB does not have a direct delete by cell_id API, so this is a no-op
 // with a warning. In production, implement a /mem/delete endpoint or
-// rely on TDB's automatic tier expiration (core → validated → draft → evict).
+// rely on TDB's automatic tier expiration.
 func (p *Provider) Delete(_ context.Context, id string) error {
-	// TDB has no cell-level delete API yet.
-	// Cells are evicted via governance (AKL tier expiration).
 	return nil
 }
 
@@ -182,9 +188,8 @@ func (p *Provider) Delete(_ context.Context, id string) error {
 
 // deriveKey creates a deterministic float32 key vector from content bytes.
 // Uses a simple hash to generate a fixed-dimension vector for latent retrieval.
-// In production, this would use the model's actual KV projection.
 func deriveKey(content json.RawMessage) []float32 {
-	const dim = 768 // matches d_model for Qwen3-0.6B / GPT-2
+	const dim = 768
 	h := hashBytes(content)
 	key := make([]float32, dim)
 	for i := 0; i < dim; i++ {
@@ -194,14 +199,12 @@ func deriveKey(content json.RawMessage) []float32 {
 }
 
 func hashBytes(b []byte) [32]byte {
-	// FNV-1a hash
 	h := [32]byte{}
 	fnv := uint64(2166136261)
 	for _, v := range b {
 		fnv ^= uint64(v)
 		fnv *= 16777619
 	}
-	// Write into array in 8-byte chunks
 	for i := 0; i < 8; i++ {
 		h[i] = byte(fnv >> (i * 8))
 		h[i+8] = byte(fnv >> ((i + 8) * 8))
@@ -211,11 +214,8 @@ func hashBytes(b []byte) [32]byte {
 }
 
 // buildQueryKey builds a synthetic key vector from SearchQuery fields.
-// This is a best-effort query representation; full semantic search requires
-// the actual model projection.
 func buildQueryKey(query memory.SearchQuery) []float32 {
 	const dim = 768
-	// Mix type, actor, tags into a deterministic vector.
 	data, _ := json.Marshal(query)
 	h := hashBytes(data)
 	key := make([]float32, dim)
@@ -226,7 +226,6 @@ func buildQueryKey(query memory.SearchQuery) []float32 {
 }
 
 // layerFromType maps Hydra memory.Type to a TDB layer index.
-// Episodic=0, Semantic=1, Operational=2, Working=3.
 func layerFromType(t memory.Type) int {
 	switch t {
 	case memory.Episodic:
@@ -256,6 +255,13 @@ func typeFromLayer(layer int) memory.Type {
 	default:
 		return memory.Semantic
 	}
+}
+
+// copyBody reads the full body so we can close the response before decoding.
+// This avoids "read on closed response body" when deferring Close().
+func copyBody(resp *http.Response) ([]byte, error) {
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
 }
 
 var _ memory.Provider = (*Provider)(nil)
