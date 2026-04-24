@@ -157,15 +157,51 @@ HYDRA_LOGGING_LEVEL=debug
 HYDRA_POLICY_DEFAULT_BUDGET=50000
 ```
 
+## LoCoMo Benchmark
+
+Hydra includes a benchmark suite based on [LoCoMo](https://github.com/snap-research/locomo) (Long-term Conversational Memory), the standard evaluation for agent memory systems.
+
+### Baseline Results (April 2026)
+
+| Strategy | Precision | Recall | F1 | Notes |
+|----------|-----------|--------|----|-------|
+| **basic** (brute-force) | 0.24% | 99.7% | 0.48% | Returns all turns, no filtering |
+| **llm** (classified) | 4.74% | 60.4% | 7.31% | LLM-assigned types, confidence, tags |
+
+For comparison, top systems on LoCoMo score 88-92% F1. The gap represents the opportunity for improvements in embeddings (#15), temporal reasoning (#17), multi-hop retrieval (#18), and memory consolidation (#19).
+
+### Running the Benchmark
+
+```bash
+# Basic strategy (no LLM needed)
+make bench-locomo
+
+# LLM strategy (requires sidecar)
+make sidecar-install
+npx @mariozechner/pi-ai login openai-codex   # authenticate once
+make sidecar-start                            # in a separate terminal
+make bench-locomo STRATEGY=llm LIMIT=1        # run on 1 sample
+```
+
+### LLM Sidecar
+
+The LLM sidecar (`tools/llm-sidecar/`) is a Node.js HTTP service wrapping [pi-ai](https://github.com/badlogic/pi-mono/tree/main/packages/ai) for unified multi-provider LLM access with OAuth support.
+
+```bash
+make sidecar-install   # npm install
+make sidecar-start     # runs on :3100
+```
+
 ## Development
 
 ```bash
-make test        # Run tests (with race detector)
-make lint        # Run golangci-lint
-make cover       # Generate coverage report (coverage.html)
-make build       # Build binary to bin/hydra
-make run         # Build and run
-make clean       # Remove build artifacts
+make test           # Run tests (with race detector)
+make lint           # Run golangci-lint
+make cover          # Generate coverage report (coverage.html)
+make build          # Build binary to bin/hydra
+make run            # Build and run
+make bench-locomo   # Run LoCoMo memory benchmark
+make clean          # Remove build artifacts
 ```
 
 Testing follows TDD: table-driven tests with `testify`, integration tests in `tests/integration/`, coverage target above 80%.
@@ -174,18 +210,24 @@ Testing follows TDD: table-driven tests with `testify`, integration tests in `te
 
 ```
 hydra-db/
-├── cmd/hydra/main.go
+├── cmd/
+│   ├── hydra/main.go              # Main server entry point
+│   └── bench-locomo/main.go       # LoCoMo benchmark CLI
+├── bench/locomo/                  # Benchmark: types, dataset, ingest, query, scoring
 ├── internal/
-│   ├── body/              # Shared core: envelope, identity, trace, eventbus, config, registry, health
-│   ├── gateway/           # API gateway head
-│   ├── agent/             # Agent runtime head
-│   ├── execution/         # Execution plane head
-│   ├── memory/            # Memory plane head (+ inmemory/ provider)
-│   ├── policy/            # Policy engine head
-│   └── adapter/           # Interface adapters (http/, cli/, slack/)
+│   ├── body/                      # Shared core: envelope, identity, trace, eventbus, config, registry, health
+│   ├── gateway/                   # API gateway head
+│   ├── agent/                     # Agent runtime head
+│   │   └── tools/                 # Built-in tools (llm.complete)
+│   ├── execution/                 # Execution plane head
+│   ├── llm/                       # LLM sidecar client
+│   ├── memory/                    # Memory plane head (+ inmemory/ and tdb/ providers)
+│   ├── policy/                    # Policy engine head
+│   └── adapter/                   # Interface adapters (http/, cli/, slack/)
+├── tools/llm-sidecar/             # Node.js LLM sidecar (pi-ai)
+├── tests/integration/             # End-to-end lifecycle tests
 ├── configs/
 │   └── hydra.example.yaml
-├── tests/integration/     # End-to-end lifecycle tests
 ├── go.mod
 ├── Makefile
 ├── .golangci.yml
