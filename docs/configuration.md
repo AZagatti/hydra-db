@@ -80,6 +80,47 @@ The environment variable name is transformed by:
 
 Note that top-level section names appear twice for sections under `hydra`. For example, to set `hydra.log_level`, the variable is `HYDRA_HYDRA__LOG_LEVEL` -- the first `HYDRA_` is the prefix, and `HYDRA__LOG_LEVEL` maps to `hydra.log_level`.
 
+## Sidecar and LLM Integration
+
+The optional LoCoMo LLM workflow and the built-in `llm.complete` tool use the Node.js sidecar in `tools/llm-sidecar/`. These settings are separate from Hydra's YAML config and `HYDRA_` environment variables.
+
+### Sidecar Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LLM_SIDECAR_PORT` | `3100` | HTTP port the sidecar listens on |
+| `PI_AI_AUTH_PATH` | unset | Explicit path to a pi-ai `auth.json` file |
+| `ANTHROPIC_API_KEY` | unset | Anthropic API-key fallback |
+| `OPENAI_API_KEY` | unset | OpenAI API-key fallback |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Default Anthropic model |
+| `OPENAI_MODEL` | `gpt-5.4` | Default OpenAI model |
+| `LLM_SIDECAR_URL` | unset | Sidecar URL used by LLM integration tests |
+
+### Auth Discovery Order
+
+The sidecar looks for auth credentials in this order:
+
+1. `PI_AI_AUTH_PATH`
+2. `tools/llm-sidecar/auth.json`
+3. repository-root `auth.json`
+4. `~/.pi-ai/auth.json`
+5. `~/auth.json`
+
+### Benchmark and Test Usage
+
+```bash
+# Start the sidecar locally
+make sidecar-install
+make sidecar-start
+
+# Run the benchmark against a non-default sidecar
+go run ./cmd/bench-locomo --strategy llm --sidecar-url http://localhost:3100 --limit 1
+
+# Run the live LLM integration test intentionally
+export LLM_SIDECAR_URL=http://localhost:3100
+go test ./tests/integration -run TestLLMAgent_ClassifyAndStoreMemories -v
+```
+
 ## Example Configs
 
 ### Minimal

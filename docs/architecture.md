@@ -216,6 +216,8 @@ The body lives in `internal/body/` and provides shared contracts every head depe
 - Tracks agent state transitions throughout the lifecycle
 - Cancels in-flight agents on shutdown
 
+Hydra also ships with built-in tools under `internal/agent/tools/`, including `llm.complete`. That tool delegates prompt execution to the HTTP client in `internal/llm`, which talks to the optional Node.js sidecar in `tools/llm-sidecar/`.
+
 **What enters:** An agent name, a `Func`, and optional configuration (tools, context).
 
 **What leaves:** A completed `Agent` with its `Result` and final `State`.
@@ -374,15 +376,21 @@ A compromised or confused agent cannot bypass policy because policy is enforced 
 
 A single binary simplifies deployment, eliminates service mesh complexity, and makes the system easy to run locally for development. The internal package boundaries keep the code modular even though it compiles as one unit. When extraction is needed, the `Head` interface defines where to cut.
 
+The core runtime still follows that model, but some optional developer workflows now depend on auxiliary processes. The LoCoMo LLM benchmark path and `llm.complete` use the Node.js sidecar in `tools/llm-sidecar/` as an external boundary for provider auth and completion requests.
+
 ## Package Map
 
 | Package | Purpose | Key Types |
 |---------|---------|-----------|
 | `cmd/hydra` | Entrypoint | `main()` |
+| `cmd/bench-locomo` | LoCoMo benchmark CLI | `main()` |
+| `bench/locomo` | Benchmark ingestion, query planning, scoring, and reporting | `Strategy`, `LLMStrategy`, `BenchResult`, `QuestionScore` |
 | `internal/body` | Shared core: envelope, identity, trace, eventbus, config, registry, health | `Envelope`, `Identity`, `Tenant`, `Span`, `EventBus`, `Config`, `Registry`, `HealthReport`, `Head` |
 | `internal/gateway` | API gateway head -- HTTP routing, middleware, envelope conversion | `Gateway`, `HandlerFunc` |
 | `internal/agent` | Agent runtime head -- agent lifecycle, tools, structured context, execution | `Runtime`, `Agent`, `Func`, `Context`, `Executor`, `Tool`, `ToolRegistry` |
+| `internal/agent/tools` | Built-in tool implementations, including LLM completion | `LLMCompleteTool` |
 | `internal/execution` | Execution plane head -- queues, jobs, DAGs, scheduler, retries | `Plane`, `Job`, `DAG`, `Queue`, `InMemoryQueue`, `Scheduler`, `JobHandler` |
+| `internal/llm` | HTTP client for the external LLM sidecar | `Client`, `CompleteRequest`, `CompleteResponse`, `Usage` |
 | `internal/memory` | Memory plane head -- typed storage with confidence scoring | `Plane`, `Provider`, `Memory`, `SearchQuery`, `Type` |
 | `internal/memory/inmemory` | In-memory storage provider | `Provider` (in-memory implementation) |
 | `internal/policy` | Policy engine head -- AuthN, AuthZ, budgets, tool ACLs, audit | `Engine`, `Role`, `Permission`, `BudgetEntry`, `ToolACL`, `AuditEntry` |
@@ -391,4 +399,5 @@ A single binary simplifies deployment, eliminates service mesh complexity, and m
 | `internal/adapter/cli` | CLI adapter | `Adapter` |
 | `internal/adapter/slack` | Slack event adapter | `Adapter` |
 | `configs/` | Configuration files | `hydra.example.yaml`, `hydra.yaml` |
+| `tools/llm-sidecar/` | Optional Node.js sidecar for LLM completions | `/health`, `/complete` |
 | `tests/integration/` | End-to-end lifecycle tests | `TestLifecycle` |

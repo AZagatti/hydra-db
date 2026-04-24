@@ -24,6 +24,16 @@ Thumbs.db
 .env
 .env.*
 
+# Benchmark data
+bench/locomo/testdata/
+
+# Sidecar
+tools/llm-sidecar/node_modules/
+tools/llm-sidecar/dist/
+
+# Auth credentials
+auth.json
+
 # Artifacts
 *.bak
 *.exe
