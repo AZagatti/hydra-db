@@ -107,6 +107,23 @@ func (r *Runtime) ListAgents() []*Agent {
 	return out
 }
 
+// GetTool retrieves a registered tool by name from the shared registry.
+func (r *Runtime) GetTool(name string) (Tool, error) {
+	return r.registry.Get(name)
+}
+
+// SpawnAgent creates and registers a bare agent with the given context but does
+// NOT execute it. The ToolLoop drives execution externally.
+func (r *Runtime) SpawnAgent(ctx *Context) *Agent {
+	agent := NewBareAgent(ctx)
+
+	r.mu.Lock()
+	r.agents[agent.ID] = agent
+	r.mu.Unlock()
+
+	return agent
+}
+
 // ListTools returns the names of all registered tools.
 func (r *Runtime) ListTools() []string {
 	return r.registry.List()

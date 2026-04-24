@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	defaultBaseURL = "http://localhost:3100"
-	defaultTimeout = 120 * time.Second
+	defaultBaseURL    = "http://localhost:3100"
+	defaultTimeout    = 120 * time.Second
+	defaultMaxTokens  = 1024
+	defaultTemperature = 0.7
 )
 
 // CompleteRequest is sent to the sidecar's /complete endpoint.
@@ -39,8 +41,11 @@ type Usage struct {
 
 // Client calls the LLM sidecar HTTP service.
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL     string
+	httpClient  *http.Client
+	model       string
+	maxTokens   int
+	temperature float64
 }
 
 // Option configures a Client.
@@ -60,11 +65,34 @@ func WithTimeout(d time.Duration) Option {
 	}
 }
 
+// WithModel sets the default model for all requests.
+func WithModel(model string) Option {
+	return func(c *Client) {
+		c.model = model
+	}
+}
+
+// WithMaxTokens sets the default max tokens for all requests.
+func WithMaxTokens(maxTokens int) Option {
+	return func(c *Client) {
+		c.maxTokens = maxTokens
+	}
+}
+
+// WithTemperature sets the default temperature for all requests.
+func WithTemperature(temp float64) Option {
+	return func(c *Client) {
+		c.temperature = temp
+	}
+}
+
 // NewClient creates a configured LLM client.
 func NewClient(opts ...Option) *Client {
 	c := &Client{
-		baseURL:    defaultBaseURL,
-		httpClient: &http.Client{Timeout: defaultTimeout},
+		baseURL:     defaultBaseURL,
+		httpClient:  &http.Client{Timeout: defaultTimeout},
+		maxTokens:   defaultMaxTokens,
+		temperature: defaultTemperature,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -73,7 +101,21 @@ func NewClient(opts ...Option) *Client {
 }
 
 // Complete sends a prompt to the LLM sidecar and returns the response.
+// Default values for model, maxTokens, and temperature are taken from the Client
+// if not explicitly set in the request.
 func (c *Client) Complete(ctx context.Context, req CompleteRequest) (*CompleteResponse, error) {
+	// Apply client defaults for fields not set in the request.
+	if req.MaxTokens == 0 {
+		req.MaxTokens = c.maxTokens
+	}
+	if req.Model == "" {
+		req.Model = c.model
+	}
+	if req.Temperature == nil && c.temperature > 0 {
+		temp := c.temperature
+		req.Temperature = &temp
+	}
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)

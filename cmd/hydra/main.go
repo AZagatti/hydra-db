@@ -16,6 +16,7 @@ import (
 	"github.com/azagatti/hydra-db/internal/body"
 	"github.com/azagatti/hydra-db/internal/execution"
 	"github.com/azagatti/hydra-db/internal/gateway"
+	"github.com/azagatti/hydra-db/internal/llm"
 	"github.com/azagatti/hydra-db/internal/memory"
 	"github.com/azagatti/hydra-db/internal/memory/inmemory"
 	"github.com/azagatti/hydra-db/internal/memory/tdb"
@@ -65,7 +66,15 @@ func main() {
 		}
 	}
 
-	registerHandlers(gw, rt, execPlane, memPlane, pe, registry, bus)
+	// Build the LLM client for the agent tool loop.
+	llmClient := llm.NewClient(
+		llm.WithBaseURL(cfg.LLM.BaseURL),
+		llm.WithModel(cfg.LLM.Model),
+		llm.WithMaxTokens(cfg.LLM.MaxTokens),
+		llm.WithTemperature(cfg.LLM.Temperature),
+	)
+
+	registerHandlers(gw, rt, execPlane, memPlane, pe, registry, bus, llmClient, cfg)
 
 	// Register built-in tools so agents can discover and invoke them.
 	httpTool := tools.NewHTTPRequest()
@@ -92,6 +101,14 @@ func main() {
 		slog.Error("register tdb_search tool", "error", err)
 		os.Exit(1)
 	}
+
+	// Register the LLM tool so the ToolLoop can invoke it.
+	llmTool := tools.NewLLMCompleteTool(llmClient)
+	if err := rt.RegisterTool(llmTool); err != nil {
+		slog.Error("register llm_complete tool", "error", err)
+		os.Exit(1)
+	}
+
 	slog.Info("tools registered", "tools", rt.ListTools())
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -152,7 +169,22 @@ func registerHandlers(
 	pe *policy.Engine,
 	registry *body.Registry,
 	bus *body.InMemoryEventBus,
+	llmClient *llm.Client,
+	cfg *body.Config,
 ) {
+	// ToolLoop powers the agentic /chat handler.
+	toolLoop := agent.NewToolLoop(rt, agent.ToolLoopConfig{
+		SystemPrompt:  agent.DefaultToolLoopPrompt,
+		MaxIterations: 20,
+		ToolAliases: map[string]string{
+			"search":  "memory_search",
+			"remember": "memory_search",
+			"forget":  "memory_write",
+			"fetch":   "http_request",
+			"tdb":     "tdb_search",
+		},
+	})
+
 	gw.RegisterHandler("chat", func(ctx context.Context, env *body.Envelope) (*body.Envelope, error) {
 		var req struct {
 			Message string        `json:"message"`
@@ -179,12 +211,17 @@ func registerHandlers(
 		}
 		pe.Audit(env.TraceID, req.Actor.ID, "chat", true, "allowed")
 
+		// Build an agent context and hand off to the ToolLoop.
 		ac := agent.NewContext(req.Actor, req.Tenant)
-		a, err := rt.Spawn(ctx, "echo-agent", func(_ context.Context, ag *agent.Agent) (any, error) {
-			return map[string]string{"echo": req.Message, "agent_id": ag.ID}, nil
-		}, agent.WithContext(ac))
+		a := rt.SpawnAgent(ac)
+		a.Context.Set("user_message", req.Message)
+
+		slog.Debug("chat: running tool loop", "agent_id", a.ID, "message", req.Message)
+
+		result, err := toolLoop.Do(ctx, a)
 		if err != nil {
-			return nil, err
+			slog.Error("chat: tool loop error", "agent_id", a.ID, "error", err)
+			return nil, fmt.Errorf("tool loop failed: %w", err)
 		}
 
 		_ = bus.Publish(ctx, body.Event{
@@ -195,7 +232,7 @@ func registerHandlers(
 
 		resp := body.NewEnvelope(body.EnvelopeResponse, "chat", req.Actor, req.Tenant)
 		resp.TraceID = env.TraceID
-		return resp.WithPayload(a.Result)
+		return resp.WithPayload(result)
 	})
 
 	gw.RegisterHandler("task", func(_ context.Context, env *body.Envelope) (*body.Envelope, error) {
@@ -203,7 +240,7 @@ func registerHandlers(
 			Type   string          `json:"type"`
 			Data   json.RawMessage `json:"data"`
 			Actor  body.Identity   `json:"actor"`
-			Tenant body.Tenant     `json:"tenant"`
+			Tenant body.Tenant    `json:"tenant"`
 		}
 		if err := json.Unmarshal(env.Payload, &req); err != nil {
 			return nil, fmt.Errorf("invalid payload: %w", err)
@@ -316,9 +353,11 @@ func registerHandlers(
 		resp := body.NewEnvelope(body.EnvelopeResponse, "health", body.Identity{}, body.Tenant{})
 		resp.TraceID = env.TraceID
 		return resp.WithPayload(map[string]any{
-			"status":  status,
-			"reports": reports,
-			"heads":   registry.Names(),
+			"status":   status,
+			"reports":  reports,
+			"heads":     registry.Names(),
+			"llm_model": cfg.LLM.Model,
+			"llm_url":   cfg.LLM.BaseURL,
 		})
 	})
 }

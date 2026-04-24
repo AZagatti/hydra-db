@@ -79,3 +79,15 @@ func NewAgent(name string, agFunc Func, opts ...Option) *Agent {
 
 	return a
 }
+
+// NewBareAgent creates an Agent that carries context but has no Func.
+// It is used by the ToolLoop when spawning an agent context for a /chat request.
+func NewBareAgent(ctx *Context) *Agent {
+	return &Agent{
+		ID:        uuid.New().String(),
+		Name:      "tool-loop-agent",
+		State:     StateCreated,
+		Context:   ctx,
+		CreatedAt: time.Now(),
+	}
+}
