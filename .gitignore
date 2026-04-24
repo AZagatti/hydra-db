@@ -30,7 +30,6 @@ bench/locomo/testdata/
 # Sidecar
 tools/llm-sidecar/node_modules/
 tools/llm-sidecar/dist/
-tools/llm-sidecar/package-lock.json
 
 # Auth credentials
 auth.json

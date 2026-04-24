@@ -176,12 +176,27 @@ For comparison, top systems on LoCoMo score 88-92% F1. The gap represents the op
 # Basic strategy (no LLM needed)
 make bench-locomo
 
+# Run the CLI directly with custom flags
+go run ./cmd/bench-locomo --limit 5
+go run ./cmd/bench-locomo --data /path/to/locomo10.json --json > locomo-report.json
+
 # LLM strategy (requires sidecar)
 make sidecar-install
 npx @mariozechner/pi-ai login openai-codex   # authenticate once
 make sidecar-start                            # in a separate terminal
 make bench-locomo STRATEGY=llm LIMIT=1        # run on 1 sample
+go run ./cmd/bench-locomo --strategy llm --sidecar-url http://localhost:3100 --limit 1
 ```
+
+CLI flags:
+
+- `--data`: path to `locomo10.json` (downloads automatically when empty)
+- `--json`: emit JSON instead of the table report
+- `--limit`: process only the first N samples
+- `--strategy`: `basic` or `llm`
+- `--sidecar-url`: override the sidecar URL for the `llm` strategy
+
+If `--data` is omitted, Hydra downloads the dataset on first run and caches it under `bench/locomo/testdata/`.
 
 ### LLM Sidecar
 
@@ -190,6 +205,20 @@ The LLM sidecar (`tools/llm-sidecar/`) is a Node.js HTTP service wrapping [pi-ai
 ```bash
 make sidecar-install   # npm install
 make sidecar-start     # runs on :3100
+```
+
+Relevant environment variables:
+
+- `LLM_SIDECAR_PORT`: sidecar listen port (default `3100`)
+- `PI_AI_AUTH_PATH`: explicit `auth.json` path for pi-ai credentials
+- `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`: API-key auth fallback
+- `ANTHROPIC_MODEL` / `OPENAI_MODEL`: override default provider models
+
+### LLM Integration Tests
+
+```bash
+export LLM_SIDECAR_URL=http://localhost:3100
+go test ./tests/integration -run TestLLMAgent_ClassifyAndStoreMemories -v
 ```
 
 ## Development

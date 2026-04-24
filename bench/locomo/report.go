@@ -53,6 +53,11 @@ func ReportTable(w io.Writer, result BenchResult) {
 			result.Tokens.InputTokens+result.Tokens.OutputTokens)
 	}
 
+	if result.PlanFallbacks > 0 {
+		//nolint:errcheck
+		fmt.Fprintf(w, "Query planner fallbacks: %d\n", result.PlanFallbacks)
+	}
+
 	//nolint:errcheck
 	fmt.Fprintln(w)
 }

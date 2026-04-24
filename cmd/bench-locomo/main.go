@@ -30,20 +30,14 @@ func main() {
 
 	ctx := context.Background()
 
-	var strat locomo.Strategy
-	switch *strategy {
-	case "basic":
-		strat = &locomo.BasicStrategy{}
-	case "llm":
-		client := llm.NewClient(llm.WithBaseURL(*sidecarURL))
-		if err := client.Health(ctx); err != nil {
+	strat, err := selectStrategy(ctx, *strategy, *sidecarURL)
+	if err != nil {
+		if *strategy == "llm" {
 			fmt.Fprintf(os.Stderr, "LLM sidecar not reachable at %s: %v\n", *sidecarURL, err)
 			fmt.Fprintf(os.Stderr, "Start the sidecar with: make sidecar-start\n")
-			os.Exit(1)
+		} else {
+			fmt.Fprintln(os.Stderr, err.Error())
 		}
-		strat = locomo.NewLLMStrategy(client)
-	default:
-		fmt.Fprintf(os.Stderr, "Unknown strategy: %s (use basic or llm)\n", *strategy)
 		os.Exit(1)
 	}
 
@@ -101,7 +95,23 @@ func runBenchmark(ctx context.Context, dataset locomo.Dataset, strat locomo.Stra
 	if llmStrat, ok := strat.(*locomo.LLMStrategy); ok {
 		usage := llmStrat.TotalUsage
 		result.Tokens = &usage
+		result.PlanFallbacks = llmStrat.PlanFallbacks
 	}
 
 	return result, nil
+}
+
+func selectStrategy(ctx context.Context, name, sidecarURL string) (locomo.Strategy, error) {
+	switch name {
+	case "basic":
+		return &locomo.BasicStrategy{}, nil
+	case "llm":
+		client := llm.NewClient(llm.WithBaseURL(sidecarURL))
+		if err := client.Health(ctx); err != nil {
+			return nil, fmt.Errorf("sidecar health check failed: %w", err)
+		}
+		return locomo.NewLLMStrategy(client), nil
+	default:
+		return nil, fmt.Errorf("unknown strategy: %s (use basic or llm)", name)
+	}
 }

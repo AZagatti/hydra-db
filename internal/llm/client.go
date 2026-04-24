@@ -119,7 +119,7 @@ func (c *Client) Complete(ctx context.Context, req CompleteRequest) (*CompleteRe
 	return &result, nil
 }
 
-// Health checks if the sidecar is reachable and ready.
+// Health checks if the sidecar is reachable and responding on /health.
 func (c *Client) Health(ctx context.Context) error {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
 	if err != nil {

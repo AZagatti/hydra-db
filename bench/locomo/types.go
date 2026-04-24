@@ -6,16 +6,18 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/azagatti/hydra-db/internal/llm"
 )
 
 // Category represents a LoCoMo question category.
 type Category int
 
 const (
-	CategorySingleHop Category = 1
-	CategoryTemporal  Category = 2
-	CategoryMultiHop  Category = 3
-	CategoryOpenDomain Category = 4
+	CategorySingleHop   Category = 1
+	CategoryTemporal    Category = 2
+	CategoryMultiHop    Category = 3
+	CategoryOpenDomain  Category = 4
 	CategoryAdversarial Category = 5
 )
 
@@ -82,11 +84,11 @@ func (q QAItem) AnswerText() string {
 
 // Sample represents a single LoCoMo conversation with its QA pairs.
 type Sample struct {
-	SampleID     string
-	SpeakerA     string
-	SpeakerB     string
-	Sessions     []Session
-	QA           []QAItem
+	SampleID string
+	SpeakerA string
+	SpeakerB string
+	Sessions []Session
+	QA       []QAItem
 }
 
 // UnmarshalJSON handles the dynamic session_N keys in the LoCoMo JSON format.
@@ -174,17 +176,15 @@ type CategoryScore struct {
 }
 
 // TokenUsage tracks LLM token consumption across a benchmark run.
-type TokenUsage struct {
-	InputTokens  int `json:"inputTokens"`
-	OutputTokens int `json:"outputTokens"`
-}
+type TokenUsage = llm.Usage
 
 // BenchResult holds the full benchmark results.
 type BenchResult struct {
-	Provider   string
-	Samples    int
-	Questions  int
-	Categories []CategoryScore
-	Overall    CategoryScore
-	Tokens     *TokenUsage `json:"tokens,omitempty"`
+	Provider      string
+	Samples       int
+	Questions     int
+	Categories    []CategoryScore
+	Overall       CategoryScore
+	Tokens        *TokenUsage `json:"tokens,omitempty"`
+	PlanFallbacks int         `json:"planFallbacks,omitempty"`
 }

@@ -1,9 +1,11 @@
-import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { createServer, IncomingMessage, Server, ServerResponse } from "node:http";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { pathToFileURL } from "node:url";
 
-const PORT = parseInt(process.env.LLM_SIDECAR_PORT || "3100", 10);
+const DEFAULT_PORT = 3100;
+type Logger = Pick<Console, "error">;
 
 // --- Types ---
 
@@ -18,54 +20,100 @@ interface CompleteRequest {
 interface CompleteResponse {
   text: string;
   usage: { inputTokens: number; outputTokens: number };
+  provider: string;
+  model: string;
+  fallbackFrom?: string[];
 }
 
 interface ErrorResponse {
   error: string;
 }
 
+interface AuthJson {
+  [provider: string]: { type: string; [key: string]: unknown };
+}
+
+export interface AuthLoadResult {
+  path: string | null;
+  credentials: AuthJson | null;
+}
+
+export interface PiAiDeps {
+  complete: (...args: any[]) => Promise<any>;
+  getModel: (...args: any[]) => unknown;
+  getOAuthApiKey?: (...args: any[]) => Promise<any>;
+}
+
+type AuthSource = "env" | "oauth";
+
+interface ResolvedApiKey {
+  apiKey: string;
+  source: AuthSource;
+}
+
+export interface SidecarRuntime {
+  env: NodeJS.ProcessEnv;
+  logger: Logger;
+  authPath: string | null;
+  authCredentials: AuthJson | null;
+  providerChain: ProviderConfig[];
+  loadPiAi: () => Promise<PiAiDeps>;
+  piAi: PiAiDeps | null;
+}
+
+export interface SidecarOptions {
+  auth?: AuthLoadResult;
+  env?: NodeJS.ProcessEnv;
+  loadPiAi?: () => Promise<PiAiDeps>;
+  logger?: Logger;
+  port?: number;
+  providerChain?: ProviderConfig[];
+}
+
 // --- pi-ai lazy loading ---
 
-let piAiLoaded = false;
-let piComplete: any;
-let piGetModel: any;
-let piGetOAuthApiKey: any;
-
-async function loadPiAi() {
-  if (piAiLoaded) return;
+async function defaultLoadPiAi(logger: Logger): Promise<PiAiDeps> {
   try {
     const piAi = await import("@mariozechner/pi-ai");
     if ("registerBuiltInApiProviders" in piAi) {
       (piAi as any).registerBuiltInApiProviders();
     }
-    piComplete = piAi.complete;
-    piGetModel = piAi.getModel;
 
+    let getOAuthApiKey: PiAiDeps["getOAuthApiKey"];
     try {
       const oauth = await import("@mariozechner/pi-ai/oauth");
-      piGetOAuthApiKey = oauth.getOAuthApiKey;
+      getOAuthApiKey = oauth.getOAuthApiKey;
     } catch {
-      // OAuth module may not be available in all versions
+      // OAuth module may not be available in all versions.
     }
 
-    piAiLoaded = true;
-    console.error("[sidecar] pi-ai loaded successfully");
+    logger.error("[sidecar] pi-ai loaded successfully");
+    return {
+      complete: piAi.complete,
+      getModel: piAi.getModel,
+      getOAuthApiKey,
+    };
   } catch (err) {
-    console.error("[sidecar] Failed to load pi-ai:", err);
+    logger.error("[sidecar] Failed to load pi-ai:", err);
     throw err;
   }
 }
 
-// --- Auth ---
+async function ensurePiAi(runtime: SidecarRuntime): Promise<PiAiDeps> {
+  if (runtime.piAi) {
+    return runtime.piAi;
+  }
 
-interface AuthJson {
-  [provider: string]: { type: string; [key: string]: unknown };
+  runtime.piAi = await runtime.loadPiAi();
+  return runtime.piAi;
 }
 
+// --- Auth ---
+
 // Auth search paths, checked in order.
-function getAuthPaths(): string[] {
+export function getAuthPaths(env: NodeJS.ProcessEnv = process.env): string[] {
   return [
-    process.env.PI_AI_AUTH_PATH,
+    env.PI_AI_AUTH_PATH,
     join(process.cwd(), "auth.json"),
     join(process.cwd(), "..", "..", "auth.json"),
     join(homedir(), ".pi-ai", "auth.json"),
@@ -73,61 +121,66 @@ function getAuthPaths(): string[] {
   ].filter(Boolean) as string[];
 }
 
-function findAuthJsonPath(): string | null {
-  for (const p of getAuthPaths()) {
-    try {
-      readFileSync(p);
-      return p;
-    } catch {
-      // not found or unreadable
-    }
-  }
-  return null;
-}
+export function loadAuthJson(
+  env: NodeJS.ProcessEnv = process.env,
+  logger: Logger = console
+): AuthLoadResult {
+  const explicitPath = env.PI_AI_AUTH_PATH;
 
-function loadAuthJson(): AuthJson | null {
-  for (const p of getAuthPaths()) {
+  for (const p of getAuthPaths(env)) {
     try {
       const raw = readFileSync(p, "utf-8");
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object") {
-        console.error(`[sidecar] Loaded auth from ${p}`);
-        return parsed;
-      }
-    } catch {
-      /* skip invalid */
-    }
-  }
-  return null;
-}
-
-let authCredentials: AuthJson | null = null;
-
-async function resolveApiKey(provider: string): Promise<string | null> {
-  // 1. Environment variable
-  const envKey = process.env[`${provider.toUpperCase()}_API_KEY`];
-  if (envKey) return envKey;
-
-  // 2. OAuth via pi-ai (map provider name, e.g. openai → openai-codex)
-  const oauthProvider = OAUTH_PROVIDER_MAP[provider] ?? provider;
-  if (authCredentials && piGetOAuthApiKey && authCredentials[oauthProvider]) {
-    try {
-      const result = await piGetOAuthApiKey(oauthProvider, authCredentials);
-      if (result) {
-        authCredentials[oauthProvider] = result.newCredentials;
-        // Persist refreshed credentials back to auth.json
-        try {
-          const authPath = findAuthJsonPath();
-          if (authPath) {
-            writeFileSync(authPath, JSON.stringify(authCredentials, null, 2));
-          }
-        } catch (err) {
-          console.error("[sidecar] Failed to persist refreshed credentials:", err);
-        }
-        return result.apiKey;
+        logger.error(`[sidecar] Loaded auth from ${p}`);
+        return { path: p, credentials: parsed as AuthJson };
       }
     } catch (err) {
-      console.error(`[sidecar] OAuth refresh failed for ${oauthProvider}:`, err);
+      const msg = err instanceof Error ? err.message : String(err);
+      if (explicitPath && p === explicitPath) {
+        throw new Error(`invalid PI_AI_AUTH_PATH ${p}: ${msg}`);
+      }
+      logger.error(`[sidecar] Skipping auth file ${p}: ${msg}`);
+    }
+  }
+
+  return { path: null, credentials: null };
+}
+
+async function resolveApiKey(
+  config: ProviderConfig,
+  runtime: SidecarRuntime
+): Promise<ResolvedApiKey | null> {
+  // 1. Environment variable
+  const envKey = runtime.env[`${config.provider.toUpperCase()}_API_KEY`];
+  if (envKey) {
+    return { apiKey: envKey, source: "env" };
+  }
+
+  // 2. OAuth via pi-ai when matching credentials are available.
+  const authProvider = config.authProvider ?? config.provider;
+  const piAi = await ensurePiAi(runtime);
+  if (
+    runtime.authCredentials &&
+    piAi.getOAuthApiKey &&
+    runtime.authCredentials[authProvider]
+  ) {
+    try {
+      const result = await piAi.getOAuthApiKey(authProvider, runtime.authCredentials);
+      if (result) {
+        runtime.authCredentials = result.newCredentials;
+        // Persist refreshed credentials back to auth.json
+        if (runtime.authPath) {
+          try {
+            writeFileSync(runtime.authPath, JSON.stringify(runtime.authCredentials, null, 2));
+          } catch (err) {
+            runtime.logger.error("[sidecar] Failed to persist refreshed credentials:", err);
+          }
+        }
+        return { apiKey: result.apiKey, source: "oauth" };
+      }
+    } catch (err) {
+      runtime.logger.error(`[sidecar] OAuth refresh failed for ${authProvider}:`, err);
     }
   }
 
@@ -144,41 +197,58 @@ const OAUTH_PROVIDER_MAP: Record<string, string> = {
   openai: "openai-codex",
 };
 
-interface ProviderConfig {
+export interface ProviderConfig {
   provider: string; // logical name (anthropic, openai)
+  authProvider?: string;
+  modelProvider?: string;
   model: string;
 }
 
-const PROVIDER_CHAIN: ProviderConfig[] = [
-  { provider: "anthropic", model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514" },
-  { provider: "openai", model: process.env.OPENAI_MODEL || "gpt-5.4" },
-];
+export function getProviderChain(env: NodeJS.ProcessEnv = process.env): ProviderConfig[] {
+  return [
+    {
+      provider: "anthropic",
+      authProvider: "anthropic",
+      modelProvider: "anthropic",
+      model: env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514",
+    },
+    {
+      provider: "openai",
+      authProvider: "openai-codex",
+      modelProvider: "openai",
+      model: env.OPENAI_MODEL || "gpt-5.4",
+    },
+  ];
+}
 
 // --- Request handling ---
 
-async function handleComplete(body: CompleteRequest): Promise<CompleteResponse> {
-  await loadPiAi();
-
+async function handleComplete(
+  body: CompleteRequest,
+  runtime: SidecarRuntime
+): Promise<CompleteResponse> {
   const maxTokens = body.maxTokens ?? 1024;
   const temperature = body.temperature ?? 0.0;
+  const fallbackFrom: string[] = [];
 
-  // Try each provider in the chain
-  const errors: string[] = [];
-
-  for (const config of PROVIDER_CHAIN) {
-    const apiKey = await resolveApiKey(config.provider);
-    if (!apiKey) {
-      errors.push(`${config.provider}: no API key`);
-      console.error(`[sidecar] ${config.provider}: no API key found`);
+  for (const config of runtime.providerChain) {
+    const resolved = await resolveApiKey(config, runtime);
+    if (!resolved) {
+      fallbackFrom.push(`${config.provider}:not-configured`);
+      runtime.logger.error(`[sidecar] ${config.provider}: no API key found`);
       continue;
     }
 
     try {
+      const piAi = await ensurePiAi(runtime);
       const modelId = body.model || config.model;
-      // Use the OAuth provider name for getModel (e.g. "openai-codex" not "openai")
-      const piProvider = OAUTH_PROVIDER_MAP[config.provider] ?? config.provider;
-      console.error(`[sidecar] Trying ${piProvider}:${modelId}`);
-      const model = piGetModel(piProvider, modelId);
+      const modelProvider =
+        resolved.source === "oauth"
+          ? (config.authProvider ?? config.provider)
+          : (config.modelProvider ?? config.provider);
+
+      runtime.logger.error(`[sidecar] Trying ${modelProvider}:${modelId}`);
+      const model = piAi.getModel(modelProvider, modelId);
 
       const context = {
         systemPrompt: body.systemPrompt,
@@ -192,15 +262,15 @@ async function handleComplete(body: CompleteRequest): Promise<CompleteResponse> 
       };
 
       const options: Record<string, unknown> = {
-        apiKey,
+        apiKey: resolved.apiKey,
         maxTokens,
       };
-      // openai-codex does not support the temperature parameter
-      if (piProvider !== "openai-codex") {
+      // openai-codex does not support the temperature parameter.
+      if (modelProvider !== "openai-codex") {
         options.temperature = temperature;
       }
 
-      const response = await piComplete(model, context, options);
+      const response = await piAi.complete(model, context, options);
 
       if (response.errorMessage) {
         throw new Error(response.errorMessage);
@@ -216,22 +286,28 @@ async function handleComplete(body: CompleteRequest): Promise<CompleteResponse> 
         }
       }
 
-      return {
+      const result: CompleteResponse = {
         text,
         usage: {
           inputTokens: response.usage?.input ?? 0,
           outputTokens: response.usage?.output ?? 0,
         },
+        provider: config.provider,
+        model: modelId,
       };
-    } catch (err: any) {
-      const msg = err?.message || String(err);
-      errors.push(`${config.provider}: ${msg}`);
-      console.error(`[sidecar] ${config.provider} failed: ${msg}`);
-      continue;
+
+      if (fallbackFrom.length > 0) {
+        result.fallbackFrom = fallbackFrom;
+      }
+
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`provider ${config.provider} failed: ${msg}`);
     }
   }
 
-  throw new Error(`All providers failed: ${errors.join("; ")}`);
+  throw new Error("no configured providers available");
 }
 
 // --- HTTP server ---
@@ -264,63 +340,94 @@ function sendJson(res: ServerResponse, status: number, data: unknown) {
   res.end(body);
 }
 
-const server = createServer(async (req, res) => {
-  const url = req.url || "/";
-  const method = req.method || "GET";
+export function createSidecarServer(options: SidecarOptions = {}): {
+  runtime: SidecarRuntime;
+  server: Server;
+} {
+  const env = options.env ?? process.env;
+  const logger = options.logger ?? console;
+  const auth = options.auth ?? loadAuthJson(env, logger);
 
-  if (url === "/health" && (method === "GET" || method === "POST")) {
-    sendJson(res, 200, { status: "ok" });
-    return;
-  }
+  const runtime: SidecarRuntime = {
+    env,
+    logger,
+    authPath: auth.path,
+    authCredentials: auth.credentials,
+    providerChain: options.providerChain ?? getProviderChain(env),
+    loadPiAi: options.loadPiAi ?? (() => defaultLoadPiAi(logger)),
+    piAi: null,
+  };
 
-  if (url === "/complete" && method === "POST") {
-    try {
-      const raw = await readBody(req);
+  const server = createServer(async (req, res) => {
+    const url = req.url || "/";
+    const method = req.method || "GET";
 
-      let body: CompleteRequest;
-      try {
-        body = JSON.parse(raw);
-      } catch {
-        sendJson(res, 400, { error: "Invalid JSON" } as ErrorResponse);
-        return;
-      }
-
-      if (!body.systemPrompt || !body.userMessage) {
-        sendJson(res, 400, {
-          error: "systemPrompt and userMessage are required",
-        } as ErrorResponse);
-        return;
-      }
-
-      const start = Date.now();
-      const result = await handleComplete(body);
-      const elapsed = Date.now() - start;
-
-      console.error(
-        `[sidecar] complete: ${result.usage.inputTokens}in/${result.usage.outputTokens}out ${elapsed}ms`
-      );
-
-      sendJson(res, 200, result);
-    } catch (err: any) {
-      console.error(`[sidecar] error:`, err?.message || err);
-      sendJson(res, 500, { error: err?.message || "Unknown error" } as ErrorResponse);
+    if (url === "/health" && (method === "GET" || method === "POST")) {
+      sendJson(res, 200, { status: "ok" });
+      return;
     }
-    return;
-  }
 
-  sendJson(res, 404, { error: "Not found" });
-});
+    if (url === "/complete" && method === "POST") {
+      try {
+        const raw = await readBody(req);
 
-// --- Startup ---
+        let body: CompleteRequest;
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          sendJson(res, 400, { error: "Invalid JSON" } as ErrorResponse);
+          return;
+        }
 
-authCredentials = loadAuthJson();
+        if (!body.systemPrompt || !body.userMessage) {
+          sendJson(res, 400, {
+            error: "systemPrompt and userMessage are required",
+          } as ErrorResponse);
+          return;
+        }
 
-server.listen(PORT, () => {
-  console.error(`[sidecar] LLM sidecar running on http://localhost:${PORT}`);
-  console.error(
-    `[sidecar] Auth: ${authCredentials ? "loaded" : "not found (using env vars only)"}`
-  );
-  console.error(
-    `[sidecar] Provider chain: ${PROVIDER_CHAIN.map((p) => `${p.provider}:${p.model}`).join(" → ")}`
-  );
-});
+        const start = Date.now();
+        const result = await handleComplete(body, runtime);
+        const elapsed = Date.now() - start;
+
+        logger.error(
+          `[sidecar] complete: ${result.provider}:${result.model} ${result.usage.inputTokens}in/${result.usage.outputTokens}out ${elapsed}ms`
+        );
+
+        sendJson(res, 200, result);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        logger.error("[sidecar] error:", msg);
+        sendJson(res, 500, { error: msg } as ErrorResponse);
+      }
+      return;
+    }
+
+    sendJson(res, 404, { error: "Not found" });
+  });
+
+  return { runtime, server };
+}
+
+export function startSidecar(options: SidecarOptions = {}): Server {
+  const { runtime, server } = createSidecarServer(options);
+  const port = options.port ?? parseInt(runtime.env.LLM_SIDECAR_PORT || `${DEFAULT_PORT}`, 10);
+
+  server.listen(port, () => {
+    runtime.logger.error(`[sidecar] LLM sidecar running on http://localhost:${port}`);
+    runtime.logger.error(
+      `[sidecar] Auth: ${runtime.authCredentials ? "loaded" : "not found (using env vars only)"}`
+    );
+    runtime.logger.error(
+      `[sidecar] Provider chain: ${runtime.providerChain
+        .map((p) => `${p.provider}:${p.model}`)
+        .join(" -> ")}`
+    );
+  });
+
+  return server;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  startSidecar();
+}
