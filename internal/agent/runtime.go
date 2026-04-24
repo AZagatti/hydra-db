@@ -107,6 +107,11 @@ func (r *Runtime) ListAgents() []*Agent {
 	return out
 }
 
+// ListTools returns the names of all registered tools.
+func (r *Runtime) ListTools() []string {
+	return r.registry.List()
+}
+
 // RegisterTool adds a Tool to the runtime's shared registry so agents can
 // discover and invoke it.
 func (r *Runtime) RegisterTool(tool Tool) error {

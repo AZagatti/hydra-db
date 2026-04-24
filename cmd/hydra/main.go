@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/azagatti/hydra-db/internal/agent"
+	"github.com/azagatti/hydra-db/internal/agent/tools"
 	"github.com/azagatti/hydra-db/internal/body"
 	"github.com/azagatti/hydra-db/internal/execution"
 	"github.com/azagatti/hydra-db/internal/gateway"
@@ -65,6 +66,33 @@ func main() {
 	}
 
 	registerHandlers(gw, rt, execPlane, memPlane, pe, registry, bus)
+
+	// Register built-in tools so agents can discover and invoke them.
+	httpTool := tools.NewHTTPRequest()
+	if err := rt.RegisterTool(httpTool); err != nil {
+		slog.Error("register http_request tool", "error", err)
+		os.Exit(1)
+	}
+	memWriteTool := tools.NewMemoryWrite(memPlane)
+	if err := rt.RegisterTool(memWriteTool); err != nil {
+		slog.Error("register memory_write tool", "error", err)
+		os.Exit(1)
+	}
+	memSearchTool := tools.NewMemorySearch(memPlane)
+	if err := rt.RegisterTool(memSearchTool); err != nil {
+		slog.Error("register memory_search tool", "error", err)
+		os.Exit(1)
+	}
+	tdbURL := cfg.Memory.TDBURL
+	if tdbURL == "" {
+		tdbURL = "http://localhost:8765"
+	}
+	tdbTool := tools.NewTDBSearch(tdbURL)
+	if err := rt.RegisterTool(tdbTool); err != nil {
+		slog.Error("register tdb_search tool", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("tools registered", "tools", rt.ListTools())
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
