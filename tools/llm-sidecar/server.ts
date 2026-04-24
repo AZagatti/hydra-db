@@ -168,7 +168,7 @@ async function resolveApiKey(
     try {
       const result = await piAi.getOAuthApiKey(authProvider, runtime.authCredentials);
       if (result) {
-        runtime.authCredentials = result.newCredentials;
+        runtime.authCredentials[authProvider] = result.newCredentials;
         // Persist refreshed credentials back to auth.json
         if (runtime.authPath) {
           try {
