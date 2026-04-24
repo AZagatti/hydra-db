@@ -22,6 +22,7 @@ func TestComplete_Success(t *testing.T) {
 		assert.Equal(t, "You are helpful.", req.SystemPrompt)
 		assert.Equal(t, "Hello", req.UserMessage)
 
+		//nolint:errcheck
 		json.NewEncoder(w).Encode(CompleteResponse{
 			Text:  "Hi there!",
 			Usage: Usage{InputTokens: 10, OutputTokens: 5},
@@ -45,6 +46,7 @@ func TestComplete_SidecarError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		//nolint:errcheck
+		//nolint:errcheck
 		json.NewEncoder(w).Encode(map[string]string{"error": "model overloaded"})
 	}))
 	defer server.Close()
@@ -61,6 +63,7 @@ func TestComplete_SidecarError(t *testing.T) {
 
 func TestComplete_ResponseError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		//nolint:errcheck
 		json.NewEncoder(w).Encode(CompleteResponse{
 			Error: "rate limited",
 		})
@@ -94,6 +97,7 @@ func TestComplete_ContextCancellation(t *testing.T) {
 func TestHealth_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/health", r.URL.Path)
+		//nolint:errcheck
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}))
 	defer server.Close()
