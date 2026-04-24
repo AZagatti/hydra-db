@@ -13,11 +13,12 @@ import (
 
 // Config is the top-level configuration for a Hydra instance.
 type Config struct {
-	Hydra       HydraConfig       `koanf:"hydra"`
-	Gateway     GatewayConfig     `koanf:"gateway"`
-	Memory      MemoryConfig      `koanf:"memory"`
-	Policy      PolicyConfig      `koanf:"policy"`
-	Logging     LoggingConfig     `koanf:"logging"`
+	Hydra   HydraConfig   `koanf:"hydra"`
+	Gateway GatewayConfig `koanf:"gateway"`
+	Memory  MemoryConfig  `koanf:"memory"`
+	Policy  PolicyConfig  `koanf:"policy"`
+	Logging LoggingConfig `koanf:"logging"`
+	LLM     LLMConfig    `koanf:"llm"`
 }
 
 // HydraConfig controls core Hydra identity and behavior.
@@ -37,9 +38,9 @@ type GatewayConfig struct {
 
 // MemoryConfig controls the memory plane backend.
 type MemoryConfig struct {
-	Provider  string `koanf:"provider"`   // "inmemory" or "tardigrade"
-	TDBURL    string `koanf:"tdb_url"`    // base URL for TardigradeDB server
-	TDBDir    string `koanf:"tdb_dir"`    // local TDB data directory (for direct engine)
+	Provider string `koanf:"provider"`  // "inmemory" or "tardigrade"
+	TDBURL   string `koanf:"tdb_url"`  // base URL for TardigradeDB server
+	TDBDir   string `koanf:"tdb_dir"`  // local TDB data directory (for direct engine)
 }
 
 // PolicyConfig controls tenant-level resource budgets and rate limits.
@@ -53,6 +54,41 @@ type LoggingConfig struct {
 	Level  string `koanf:"level"`
 	Format string `koanf:"format"`
 }
+
+// LLMConfig controls the LLM sidecar used by the agent tool loop.
+type LLMConfig struct {
+	BaseURL     string  `koanf:"base_url"`      // e.g. "http://localhost:11434/v1"
+	Model       string  `koanf:"model"`         // e.g. "qwen3:4b"
+	APIKey      string  `koanf:"api_key"`        // optional API key
+	MaxTokens   int     `koanf:"max_tokens"`    // max response tokens (default 1024)
+	Temperature float64 `koanf:"temperature"`    // sampling temperature (default 0.7)
+	Timeout     int     `koanf:"timeout"`       // request timeout in seconds (default 30)
+}
+
+// defaultsYAML is embedded so LoadConfig can apply defaults before loading the file.
+var defaultsYAML = []byte(`hydra:
+  name: hydra
+  version: "0.1.0"
+  log_level: info
+gateway:
+  host: localhost
+  port: 8080
+  read_timeout: 30
+  write_timeout: 30
+policy:
+  default_budget: 10000
+  rate_limit: 100
+logging:
+  level: info
+  format: json
+llm:
+  base_url: "http://localhost:11434/v1"
+  model: qwen3:4b
+  api_key: ""
+  max_tokens: 1024
+  temperature: 0.7
+  timeout: 30
+`)
 
 // DefaultConfig returns a Config populated with sensible defaults.
 func DefaultConfig() *Config {
@@ -76,6 +112,14 @@ func DefaultConfig() *Config {
 			Level:  "info",
 			Format: "json",
 		},
+		LLM: LLMConfig{
+			BaseURL:     "http://localhost:11434/v1",
+			Model:       "qwen3:4b",
+			APIKey:      "",
+			MaxTokens:   1024,
+			Temperature: 0.7,
+			Timeout:     30,
+		},
 	}
 }
 
@@ -85,22 +129,6 @@ func DefaultConfig() *Config {
 func LoadConfig(path string) (*Config, error) {
 	k := koanf.New(".")
 
-	defaultsYAML := []byte(`hydra:
-  name: hydra
-  version: "0.1.0"
-  log_level: info
-gateway:
-  host: localhost
-  port: 8080
-  read_timeout: 30
-  write_timeout: 30
-policy:
-  default_budget: 10000
-  rate_limit: 100
-logging:
-  level: info
-  format: json
-`)
 	if err := k.Load(&rawBytesProvider{data: defaultsYAML}, yaml.Parser()); err != nil {
 		return nil, fmt.Errorf("loading defaults: %w", err)
 	}
