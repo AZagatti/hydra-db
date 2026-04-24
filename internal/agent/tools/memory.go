@@ -107,7 +107,6 @@ func (t *MemorySearch) Execute(ctx context.Context, raw json.RawMessage) (json.R
 
 	results, err := t.plane.Search(ctx, memory.SearchQuery{
 		Type:    memType,
-		Query:   input.Query,
 		Limit:   limit,
 		ActorID: input.ActorID,
 	})
