@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/azagatti/hydra-db/internal/memory"
@@ -77,5 +78,6 @@ func parseDateTime(s string) time.Time {
 			return t
 		}
 	}
+	fmt.Fprintf(os.Stderr, "  [warn] unparseable date %q, using current time\n", s)
 	return time.Now()
 }

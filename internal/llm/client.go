@@ -53,7 +53,7 @@ func WithBaseURL(url string) Option {
 	}
 }
 
-// WithTimeout sets the HTTP client timeout (default 30s).
+// WithTimeout sets the HTTP client timeout (default 120s).
 func WithTimeout(d time.Duration) Option {
 	return func(c *Client) {
 		c.httpClient.Timeout = d
@@ -121,7 +121,7 @@ func (c *Client) Complete(ctx context.Context, req CompleteRequest) (*CompleteRe
 
 // Health checks if the sidecar is reachable and ready.
 func (c *Client) Health(ctx context.Context) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/health", nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
 	if err != nil {
 		return fmt.Errorf("create health request: %w", err)
 	}
@@ -132,6 +132,9 @@ func (c *Client) Health(ctx context.Context) error {
 	}
 	//nolint:errcheck
 	defer resp.Body.Close()
+
+	// Drain body to allow connection reuse.
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("sidecar unhealthy: HTTP %d", resp.StatusCode)

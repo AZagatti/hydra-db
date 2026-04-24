@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/azagatti/hydra-db/internal/agent"
@@ -64,15 +65,15 @@ Bob: I'm actually allergic to shellfish, so I have to be careful eating out.`,
 		}
 
 		// Clean potential markdown fences.
-		text := resp.Text
+		text := strings.TrimSpace(resp.Text)
 		for _, prefix := range []string{"```json", "```"} {
-			if len(text) > len(prefix) && text[:len(prefix)] == prefix {
-				text = text[len(prefix):]
+			if strings.HasPrefix(text, prefix) {
+				text = strings.TrimPrefix(text, prefix)
+				break
 			}
 		}
-		if len(text) > 3 && text[len(text)-3:] == "```" {
-			text = text[:len(text)-3]
-		}
+		text = strings.TrimSuffix(text, "```")
+		text = strings.TrimSpace(text)
 
 		var classifications []struct {
 			Line       string   `json:"line"`

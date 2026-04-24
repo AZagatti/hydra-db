@@ -97,6 +97,7 @@ func TestComplete_ContextCancellation(t *testing.T) {
 func TestHealth_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/health", r.URL.Path)
+		assert.Equal(t, http.MethodGet, r.Method)
 		//nolint:errcheck
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}))

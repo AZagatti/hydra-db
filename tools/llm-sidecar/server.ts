@@ -1,5 +1,5 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -62,29 +62,40 @@ interface AuthJson {
   [provider: string]: { type: string; [key: string]: unknown };
 }
 
-function findAuthJson(): AuthJson | null {
-  // Check multiple locations: env override, cwd, project root (2 dirs up
-  // from tools/llm-sidecar/), and home directory.
-  const paths = [
+// Auth search paths, checked in order.
+function getAuthPaths(): string[] {
+  return [
     process.env.PI_AI_AUTH_PATH,
     join(process.cwd(), "auth.json"),
     join(process.cwd(), "..", "..", "auth.json"),
     join(homedir(), ".pi-ai", "auth.json"),
     join(homedir(), "auth.json"),
   ].filter(Boolean) as string[];
+}
 
-  for (const p of paths) {
-    if (existsSync(p)) {
-      try {
-        const raw = readFileSync(p, "utf-8");
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") {
-          console.error(`[sidecar] Loaded auth from ${p}`);
-          return parsed;
-        }
-      } catch {
-        /* skip invalid */
+function findAuthJsonPath(): string | null {
+  for (const p of getAuthPaths()) {
+    try {
+      readFileSync(p);
+      return p;
+    } catch {
+      // not found or unreadable
+    }
+  }
+  return null;
+}
+
+function loadAuthJson(): AuthJson | null {
+  for (const p of getAuthPaths()) {
+    try {
+      const raw = readFileSync(p, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        console.error(`[sidecar] Loaded auth from ${p}`);
+        return parsed;
       }
+    } catch {
+      /* skip invalid */
     }
   }
   return null;
@@ -110,7 +121,9 @@ async function resolveApiKey(provider: string): Promise<string | null> {
           if (authPath) {
             writeFileSync(authPath, JSON.stringify(authCredentials, null, 2));
           }
-        } catch { /* best effort */ }
+        } catch (err) {
+          console.error("[sidecar] Failed to persist refreshed credentials:", err);
+        }
         return result.apiKey;
       }
     } catch (err) {
@@ -118,21 +131,6 @@ async function resolveApiKey(provider: string): Promise<string | null> {
     }
   }
 
-  return null;
-}
-
-function findAuthJsonPath(): string | null {
-  const paths = [
-    process.env.PI_AI_AUTH_PATH,
-    join(process.cwd(), "auth.json"),
-    join(process.cwd(), "..", "..", "auth.json"),
-    join(homedir(), ".pi-ai", "auth.json"),
-    join(homedir(), "auth.json"),
-  ].filter(Boolean) as string[];
-
-  for (const p of paths) {
-    if (existsSync(p)) return p;
-  }
   return null;
 }
 
@@ -179,7 +177,7 @@ async function handleComplete(body: CompleteRequest): Promise<CompleteResponse> 
       const modelId = body.model || config.model;
       // Use the OAuth provider name for getModel (e.g. "openai-codex" not "openai")
       const piProvider = OAUTH_PROVIDER_MAP[config.provider] ?? config.provider;
-      console.error(`[sidecar] Trying ${piProvider}:${modelId} (key: ${apiKey.slice(0, 8)}...)`);
+      console.error(`[sidecar] Trying ${piProvider}:${modelId}`);
       const model = piGetModel(piProvider, modelId);
 
       const context = {
@@ -204,16 +202,11 @@ async function handleComplete(body: CompleteRequest): Promise<CompleteResponse> 
 
       const response = await piComplete(model, context, options);
 
-      // Debug: log full response structure
-      console.error(`[sidecar] Response keys:`, Object.keys(response));
-      console.error(`[sidecar] Content blocks:`, JSON.stringify(response.content?.map((b: any) => ({ type: b.type, hasText: !!b.text, keys: Object.keys(b) })) ?? "no content"));
-      console.error(`[sidecar] Usage:`, JSON.stringify(response.usage));
-      console.error(`[sidecar] Stop reason:`, response.stopReason);
       if (response.errorMessage) {
-        console.error(`[sidecar] Error message:`, response.errorMessage);
+        throw new Error(response.errorMessage);
       }
 
-      // Extract text from response — try multiple content block formats
+      // Extract text from response
       let text = "";
       if (response.content) {
         for (const block of response.content) {
@@ -221,10 +214,6 @@ async function handleComplete(body: CompleteRequest): Promise<CompleteResponse> 
             text += block.text;
           }
         }
-      }
-      // Fallback: check if response itself has a text field
-      if (!text && (response as any).text) {
-        text = (response as any).text;
       }
 
       return {
@@ -249,8 +238,18 @@ async function handleComplete(body: CompleteRequest): Promise<CompleteResponse> 
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
+    let size = 0;
+    const maxSize = 1024 * 1024; // 1 MB
     const chunks: Buffer[] = [];
-    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > maxSize) {
+        req.destroy();
+        reject(new Error("Request body too large"));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks).toString()));
     req.on("error", reject);
   });
@@ -269,7 +268,7 @@ const server = createServer(async (req, res) => {
   const url = req.url || "/";
   const method = req.method || "GET";
 
-  if (url === "/health" && method === "POST") {
+  if (url === "/health" && (method === "GET" || method === "POST")) {
     sendJson(res, 200, { status: "ok" });
     return;
   }
@@ -277,7 +276,14 @@ const server = createServer(async (req, res) => {
   if (url === "/complete" && method === "POST") {
     try {
       const raw = await readBody(req);
-      const body: CompleteRequest = JSON.parse(raw);
+
+      let body: CompleteRequest;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        sendJson(res, 400, { error: "Invalid JSON" } as ErrorResponse);
+        return;
+      }
 
       if (!body.systemPrompt || !body.userMessage) {
         sendJson(res, 400, {
@@ -307,7 +313,7 @@ const server = createServer(async (req, res) => {
 
 // --- Startup ---
 
-authCredentials = findAuthJson();
+authCredentials = loadAuthJson();
 
 server.listen(PORT, () => {
   console.error(`[sidecar] LLM sidecar running on http://localhost:${PORT}`);

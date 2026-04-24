@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 const (
-	datasetURL  = "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json"
-	cacheDir    = "bench/locomo/testdata"
-	cacheFile   = "locomo10.json"
+	datasetURL      = "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json"
+	cacheDir        = "bench/locomo/testdata"
+	cacheFile       = "locomo10.json"
+	downloadTimeout = 60 * time.Second
 )
 
 // LoadDataset loads the LoCoMo dataset from a local path or downloads it.
@@ -49,17 +51,19 @@ func LoadDataset(dataPath string) (Dataset, error) {
 func ensureCached() (string, error) {
 	path := filepath.Join(cacheDir, cacheFile)
 
-	if _, err := os.Stat(path); err == nil {
+	// Check if cached file exists and is non-empty.
+	if info, err := os.Stat(path); err == nil && info.Size() > 0 {
 		return path, nil
 	}
 
-	fmt.Printf("Downloading LoCoMo dataset from %s ...\n", datasetURL)
+	fmt.Fprintf(os.Stderr, "Downloading LoCoMo dataset from %s ...\n", datasetURL)
 
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", fmt.Errorf("create cache dir: %w", err)
 	}
 
-	resp, err := http.Get(datasetURL)
+	client := &http.Client{Timeout: downloadTimeout}
+	resp, err := client.Get(datasetURL)
 	if err != nil {
 		return "", fmt.Errorf("HTTP GET: %w", err)
 	}
@@ -79,6 +83,6 @@ func ensureCached() (string, error) {
 		return "", fmt.Errorf("write cache: %w", err)
 	}
 
-	fmt.Printf("Cached dataset at %s (%d bytes)\n", path, len(body))
+	fmt.Fprintf(os.Stderr, "Cached dataset at %s (%d bytes)\n", path, len(body))
 	return path, nil
 }

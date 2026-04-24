@@ -65,10 +65,9 @@ func main() {
 
 func runBenchmark(ctx context.Context, dataset locomo.Dataset, strat locomo.Strategy) (locomo.BenchResult, error) {
 	var allScores []locomo.QuestionScore
-	totalQuestions := 0
 
 	for i, sample := range dataset {
-		fmt.Printf("[%s] Processing sample %d/%d (%d sessions, %d QA items)...\n",
+		fmt.Fprintf(os.Stderr, "[%s] Processing sample %d/%d (%d sessions, %d QA items)...\n",
 			strat.Name(), i+1, len(dataset), len(sample.Sessions), len(sample.QA))
 
 		ingested, err := strat.Ingest(ctx, sample)
@@ -85,8 +84,6 @@ func runBenchmark(ctx context.Context, dataset locomo.Dataset, strat locomo.Stra
 			score := locomo.ScoreQuestion(r)
 			allScores = append(allScores, score)
 		}
-
-		totalQuestions += len(sample.QA)
 	}
 
 	categories := locomo.AggregateByCategory(allScores)
@@ -95,17 +92,15 @@ func runBenchmark(ctx context.Context, dataset locomo.Dataset, strat locomo.Stra
 	result := locomo.BenchResult{
 		Provider:   strat.Name(),
 		Samples:    len(dataset),
-		Questions:  totalQuestions,
+		Questions:  len(allScores),
 		Categories: categories,
 		Overall:    overall,
 	}
 
 	// Attach token usage if LLM strategy was used.
 	if llmStrat, ok := strat.(*locomo.LLMStrategy); ok {
-		result.Tokens = &locomo.TokenUsage{
-			InputTokens:  llmStrat.TotalUsage.InputTokens,
-			OutputTokens: llmStrat.TotalUsage.OutputTokens,
-		}
+		usage := llmStrat.TotalUsage
+		result.Tokens = &usage
 	}
 
 	return result, nil

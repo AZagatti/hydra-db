@@ -9,29 +9,29 @@ import (
 
 // QueryResult holds the dialog IDs retrieved for a single QA question.
 type QueryResult struct {
-	QA          QAItem
+	QA           QAItem
 	RetrievedIDs []string
 }
 
-// ExecuteQueries runs all QA questions against the ingested sample's memory plane,
-// returning the set of retrieved dialog IDs for each question.
+// ExecuteQueries runs all QA questions against the ingested sample's memory plane.
+// In the basic strategy, the search is identical for every question (no semantic
+// filtering), so we execute it once and reuse the result set.
 func ExecuteQueries(ctx context.Context, sample *IngestedSample, qa []QAItem) ([]QueryResult, error) {
+	query := memory.SearchQuery{
+		Type:     memory.Episodic,
+		TenantID: sample.SampleID,
+		Limit:    10000, // high limit to retrieve all turns (provider defaults 0 to 50)
+	}
+
+	memories, err := sample.Plane.Search(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	retrieved := extractDiaIDs(memories, sample.MemToDiaID)
+
 	results := make([]QueryResult, 0, len(qa))
-
 	for _, q := range qa {
-		query := memory.SearchQuery{
-			Type:     memory.Episodic,
-			TenantID: sample.SampleID,
-			Limit:    10000, // high limit to retrieve all turns (provider defaults 0 to 50)
-		}
-
-		memories, err := sample.Plane.Search(ctx, query)
-		if err != nil {
-			return nil, err
-		}
-
-		retrieved := extractDiaIDs(memories, sample.MemToDiaID)
-
 		results = append(results, QueryResult{
 			QA:           q,
 			RetrievedIDs: retrieved,

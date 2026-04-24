@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -62,9 +63,10 @@ type SmartSearchQuery struct {
 }
 
 // LLMStrategy uses an LLM to classify turns and generate targeted queries.
+// Not safe for concurrent use.
 type LLMStrategy struct {
 	client     *llm.Client
-	TotalUsage llm.Usage
+	TotalUsage TokenUsage
 }
 
 // NewLLMStrategy creates an LLM-powered strategy.
@@ -88,7 +90,7 @@ func (s *LLMStrategy) Ingest(ctx context.Context, sample Sample) (*IngestedSampl
 	}
 
 	for si, sess := range sample.Sessions {
-		fmt.Printf("  [ingest] Session %d/%d (index %d, %d turns)...\n",
+		fmt.Fprintf(os.Stderr,"  [ingest] Session %d/%d (index %d, %d turns)...\n",
 			si+1, len(sample.Sessions), sess.Index, len(sess.Turns))
 		sessionTime := parseDateTime(sess.DateTime)
 
@@ -103,7 +105,7 @@ func (s *LLMStrategy) Ingest(ctx context.Context, sample Sample) (*IngestedSampl
 			classifications, err := s.classifyBatch(ctx, sample, sess, batch)
 			if err != nil {
 				// Fall back to basic classification on LLM failure.
-				fmt.Printf("  [warn] LLM classification failed for session %d batch %d, falling back to basic: %v\n",
+				fmt.Fprintf(os.Stderr,"  [warn] LLM classification failed for session %d batch %d, falling back to basic: %v\n",
 					sess.Index, batchStart/classifyBatchSize, err)
 				classifications = fallbackClassify(batch)
 			}
@@ -126,12 +128,15 @@ func (s *LLMStrategy) Ingest(ctx context.Context, sample Sample) (*IngestedSampl
 					}
 				}
 
-				content, _ := json.Marshal(map[string]string{
+				content, err := json.Marshal(map[string]string{
 					"speaker": turn.Speaker,
 					"text":    turn.Text,
 					"dia_id":  turn.DiaID,
 					"summary": cls.Summary,
 				})
+				if err != nil {
+					return nil, fmt.Errorf("marshal turn %s: %w", turn.DiaID, err)
+				}
 
 				memType := parseMemoryType(cls.MemoryType)
 				mem := memory.NewMemory(memType, content, turn.Speaker, sample.SampleID)
@@ -163,7 +168,7 @@ func (s *LLMStrategy) Query(ctx context.Context, ingested *IngestedSample, qa []
 
 	for i, q := range qa {
 		if (i+1)%20 == 0 || i == 0 {
-			fmt.Printf("  [query] Processing question %d/%d...\n", i+1, len(qa))
+			fmt.Fprintf(os.Stderr,"  [query] Processing question %d/%d...\n", i+1, len(qa))
 		}
 
 		smartQuery, err := s.planQuery(ctx, q)
