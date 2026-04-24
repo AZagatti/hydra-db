@@ -87,6 +87,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, raw json.RawMessage) (json.Ra
 	if err != nil {
 		return nil, fmt.Errorf("http_request: do request: %w", err)
 	}
+	//nolint:errcheck
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)

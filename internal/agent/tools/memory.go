@@ -58,6 +58,7 @@ func (t *MemoryWrite) Execute(ctx context.Context, raw json.RawMessage) (json.Ra
 	}
 
 	mem := memory.NewMemory(memType, content, actorID, "default")
+	mem.Confidence = confidence
 	if err := t.plane.Store(ctx, mem); err != nil {
 		return nil, fmt.Errorf("memory_write: store: %w", err)
 	}

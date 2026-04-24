@@ -93,6 +93,7 @@ func (t *TDBSearch) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 	if err != nil {
 		return nil, fmt.Errorf("tdb_search: request failed: %w", err)
 	}
+	//nolint:errcheck
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
