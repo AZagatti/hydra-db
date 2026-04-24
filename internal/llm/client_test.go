@@ -44,6 +44,7 @@ func TestComplete_Success(t *testing.T) {
 func TestComplete_SidecarError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
+		//nolint:errcheck
 		json.NewEncoder(w).Encode(map[string]string{"error": "model overloaded"})
 	}))
 	defer server.Close()

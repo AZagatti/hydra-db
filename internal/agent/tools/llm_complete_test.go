@@ -19,11 +19,13 @@ func TestLLMCompleteTool_Name(t *testing.T) {
 func TestLLMCompleteTool_Execute_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.CompleteRequest
+		//nolint:errcheck
 		json.NewDecoder(r.Body).Decode(&req)
 
 		assert.Equal(t, "Be concise.", req.SystemPrompt)
 		assert.Equal(t, "What is Go?", req.UserMessage)
 
+		//nolint:errcheck
 		json.NewEncoder(w).Encode(llm.CompleteResponse{
 			Text:  "A programming language.",
 			Usage: llm.Usage{InputTokens: 15, OutputTokens: 4},
@@ -84,6 +86,7 @@ func TestLLMCompleteTool_Execute_InvalidJSON(t *testing.T) {
 func TestLLMCompleteTool_Execute_SidecarError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
+		//nolint:errcheck
 		json.NewEncoder(w).Encode(map[string]string{"error": "provider down"})
 	}))
 	defer server.Close()

@@ -89,6 +89,7 @@ func (c *Client) Complete(ctx context.Context, req CompleteRequest) (*CompleteRe
 	if err != nil {
 		return nil, fmt.Errorf("sidecar request: %w", err)
 	}
+	//nolint:errcheck
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(resp.Body)
@@ -129,6 +130,7 @@ func (c *Client) Health(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("sidecar unreachable: %w", err)
 	}
+	//nolint:errcheck
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {

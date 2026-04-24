@@ -109,10 +109,10 @@ func (s *Sample) UnmarshalJSON(data []byte) error {
 		}
 
 		if sa, ok := convMap["speaker_a"]; ok {
-			json.Unmarshal(sa, &s.SpeakerA)
+			_ = json.Unmarshal(sa, &s.SpeakerA)
 		}
 		if sb, ok := convMap["speaker_b"]; ok {
-			json.Unmarshal(sb, &s.SpeakerB)
+			_ = json.Unmarshal(sb, &s.SpeakerB)
 		}
 
 		// Collect session indices.
@@ -134,7 +134,7 @@ func (s *Sample) UnmarshalJSON(data []byte) error {
 			sess := Session{Index: idx}
 
 			if dt, ok := convMap[dateKey]; ok {
-				json.Unmarshal(dt, &sess.DateTime)
+				_ = json.Unmarshal(dt, &sess.DateTime)
 			}
 
 			if turns, ok := convMap[sessionKey]; ok {

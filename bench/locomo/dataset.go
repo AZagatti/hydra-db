@@ -63,6 +63,7 @@ func ensureCached() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("HTTP GET: %w", err)
 	}
+	//nolint:errcheck
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
