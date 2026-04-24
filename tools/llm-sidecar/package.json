@@ -10,6 +10,7 @@
     "@mariozechner/pi-ai": "latest"
   },
   "devDependencies": {
+    "@types/node": "^22.15.21",
     "tsx": "^4.0.0",
     "typescript": "^5.5.0"
   }
