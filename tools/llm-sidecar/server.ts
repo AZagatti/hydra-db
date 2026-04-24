@@ -166,17 +166,9 @@ async function resolveApiKey(
     runtime.authCredentials[authProvider]
   ) {
     try {
+      // getOAuthApiKey mutates the credentials map in place with refreshed tokens.
       const result = await piAi.getOAuthApiKey(authProvider, runtime.authCredentials);
       if (result) {
-        runtime.authCredentials[authProvider] = result.newCredentials;
-        // Persist refreshed credentials back to auth.json
-        if (runtime.authPath) {
-          try {
-            writeFileSync(runtime.authPath, JSON.stringify(runtime.authCredentials, null, 2));
-          } catch (err) {
-            runtime.logger.error("[sidecar] Failed to persist refreshed credentials:", err);
-          }
-        }
         return { apiKey: result.apiKey, source: "oauth" };
       }
     } catch (err) {
