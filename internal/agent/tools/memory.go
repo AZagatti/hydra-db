@@ -72,10 +72,10 @@ func (t *MemoryWrite) Execute(ctx context.Context, raw json.RawMessage) (json.Ra
 
 // MemorySearchInput describes a memory search operation.
 type MemorySearchInput struct {
-	Query   string `json:"query"`
-	Type    string `json:"type,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
-	ActorID string `json:"actor_id,omitempty"`
+	Type    string   `json:"type,omitempty"`
+	Tags    []string `json:"tags,omitempty"`
+	Limit   int      `json:"limit,omitempty"`
+	ActorID string   `json:"actor_id,omitempty"`
 }
 
 // MemorySearch is a tool that queries the Memory Plane.
